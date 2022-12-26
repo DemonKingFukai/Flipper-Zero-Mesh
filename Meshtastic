@@ -1,0 +1,66 @@
+#include <furi.h>
+#include <input/input.h>
+#include <meshtastic/meshtastic.h>
+#include <stdio.h>
+#include <string.h>
+#include <e32-900t20d/e32-900t20d.h>
+
+#define MAX_MESSAGE_LENGTH 32
+
+typedef struct {
+    FuriMessageQueue *event_queue;
+    Meshtastic *meshtastic;
+    E32_900T20D *lora;
+} AppState;
+
+static void input_callback(InputEvent *input_event, FuriMessageQueue *event_queue) {
+    furi_assert(event_queue);
+    PluginEvent event = {.type = EventTypeKey, .input = *input_event};
+    furi_message_queue_put(event_queue, &event, FuriWaitForever);
+}
+
+static void send_message(AppState *state) {
+    char message[MAX_MESSAGE_LENGTH];
+    printf("Enter a message to send: ");
+    fgets(message, MAX_MESSAGE_LENGTH, stdin);
+    message[strcspn(message, "\n")] = 0;
+
+    // Send the message using the LoRa module
+    e32_900t20d_send_string(state->lora, message);
+    printf("Message sent over LoRa!\n");
+
+    // Also send the message over the mesh network using Meshtastic
+    meshtastic_send_string(state->meshtastic, message);
+    printf("Message sent over mesh network!\n");
+}
+
+static void handle_event(AppState *state, PluginEvent event) {
+    switch (event.type) {
+        case EventTypeKey:
+            if (event.input.type == InputEventTypeKeyboard && event.input.keyboard.type == KeyboardEventTypeKey) {
+                if (event.input.keyboard.key == KeyboardKeyEnter) {
+                    send_message(state);
+                }
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+int32_t meshtastic_app(void *p) {
+    UNUSED(p);
+
+    // Initialize the Meshtastic and LoRa modules
+    AppState state;
+    state.event_queue = furi_message_queue_alloc(8, sizeof(PluginEvent));
+    state.meshtastic = meshtastic_alloc();
+    state.lora = e32_900t20d_alloc(GPIO_NUM_4, GPIO_NUM_5);
+
+    // Set the input callback to receive keyboard events
+    input_set_callback(input_callback, state.event_queue);
+
+    // Run the event loop to handle user input and received messages
+    PluginEvent event;
+    while (true) {
+        furi_message_queue_get(state.event_
